@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title><![CDATA[RobinTec]]></title>
+  <subtitle><![CDATA[你不是一个人在coding]]></subtitle>
+  <link href="/atom.xml" rel="self"/>
+  <link href="http://huxiaobo.net/"/>
+  <updated>2015-10-06T18:28:38.000Z</updated>
+  <id>http://huxiaobo.net/</id>
+  
+  <author>
+    <name><![CDATA[Robin_Hu]]></name>
+    
+  </author>
+  
+  <generator uri="http://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title><![CDATA[使用golang模拟MapReduce过程]]></title>
+    <link href="http://huxiaobo.net/2015/10/06/%E4%BD%BF%E7%94%A8golang%E6%A8%A1%E6%8B%9FMapReduce%E8%BF%87%E7%A8%8B/"/>
+    <id>http://huxiaobo.net/2015/10/06/使用golang模拟MapReduce过程/</id>
+    <published>2015-10-06T14:10:00.000Z</published>
+    <updated>2015-10-06T18:28:38.000Z</updated>
+    <content type="html"><![CDATA[<p>MapReduce是并行计算中非常重要的一部分，本文为MapReduce扫盲贴，所谓的MapReduce主要分为Map和Reduce两部分内容，也就是先进行任务拆分给多个CPU进行计算然后再将计算结果进行归约…<br><a id="more"></a></p>
+<h4 id="并发与并行（Concurrency_and_Parallelism）">并发与并行（Concurrency and Parallelism）</h4><p>在开始之前，我们先普及一下并发和并行的概念。并发和并行是两个截然不同的概念，他们之间的区别要讲起来是比较晦涩难懂的，网上看的很多解释都使用逻辑控制流来进行解释，有的人反而越看越不明白。以下引用<a href="http://blog.golang.org/concurrency-is-not-parallelism" target="_blank" rel="external">Rob Pike的演讲中的一小段进行解释</a>上的这样一句话：</p>
+<blockquote>
+<p>Concurrency is about dealing with lots of things at once. Parallelism is about doing lots of things at once.<br>Concurrency is goal for structure, Parallelism is goal for execute   </p>
+</blockquote>
+<p>极端一点，简单来说就是“并发”指的是同时处理很多事情（可以是相同的或不同的事情），“并行”指的是同时做大量的工作（强调的是量，通常情况下是做相同的工作，当然从某种情况下来讲也可以是不相同的）。</p>
+<h4 id="MapReduce思想">MapReduce思想</h4><p>MapReduce核心思想就是将一个任务分成多份，并行的去执行，执行完成后再把所有结果统一起来。所以它分为两个主要过程  </p>
+<ul>
+<li>任务拆分，就是Map过程</li>
+<li>结果整合，就是Reduce过程</li>
+</ul>
+<h4 id="使用golang的goroutine进行模拟">使用golang的goroutine进行模拟</h4><p>MapReduce的目的就是为了让计算变得更快，我们这里使用经典的求和任务来进行模拟   </p>
+<ul>
+<li>任务：计算 1 + 2 + 3 + … + 100000 的结果</li>
+<li><p>传统的实现方法–一次循环搞定（以下代码都使用golang语法演示）   </p>
+<figure class="highlight livecodeserver"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">func add1(<span class="built_in">start</span>, <span class="function"><span class="keyword">end</span> <span class="title">int</span>) <span class="title">int</span> &#123;</span></span><br><span class="line">	<span class="built_in">sum</span> := <span class="number">0</span></span><br><span class="line">	<span class="keyword">for</span> i := <span class="built_in">start</span>; i &lt;= <span class="keyword">end</span>; i++ &#123;</span><br><span class="line">		<span class="built_in">sum</span> += i</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="constant">return</span> <span class="built_in">sum</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>哈哈哈，当然还有更聪明的办法</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">func add2(<span class="operator"><span class="keyword">start</span>, <span class="keyword">end</span> <span class="built_in">int</span>) <span class="built_in">int</span>&#123;</span><br><span class="line">	<span class="keyword">return</span> (<span class="keyword">end</span> - <span class="keyword">start</span> + <span class="number">1</span>) * (<span class="keyword">end</span> + <span class="keyword">start</span>) / <span class="number">2</span></span><br><span class="line">&#125;</span></span><br></pre></td></tr></table></figure>
+</li>
+<li><p>前面介绍的两种方法，写过代码的都知道，下面使用goroutine与channel进行模拟</p>
+<figure class="highlight livecodeserver"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">func add3(<span class="built_in">start</span>, <span class="function"><span class="keyword">end</span> <span class="title">int</span>) <span class="title">int</span>&#123;</span></span><br><span class="line">	rout_num := <span class="number">4</span> <span class="comment"> // 定义使用4个goroutine进行计算</span></span><br><span class="line">	ch := make(chan int) <span class="comment"> // 定义一个channel用来传递每个goroutine计算结束后的结果</span></span><br><span class="line"></span><br><span class="line"><span class="comment">	// Map操作，将计算任务分配下去</span></span><br><span class="line"><span class="comment">	// 第一个goroutine计算 1 + 5 + 9 + ... </span></span><br><span class="line"><span class="comment">	// 第二个goroutine计算 2 + 6 + 10 + ...</span></span><br><span class="line"><span class="comment">	// ...</span></span><br><span class="line">	<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; rout_num; i++ &#123;</span><br><span class="line">		go func(<span class="built_in">start</span>, <span class="keyword">end</span>, step int) &#123;</span><br><span class="line">			<span class="built_in">sum</span> := <span class="number">0</span></span><br><span class="line">			<span class="keyword">for</span> i := <span class="built_in">start</span>; i &lt;= <span class="keyword">end</span>; i += step &#123;</span><br><span class="line">				<span class="built_in">sum</span> += i</span><br><span class="line">			&#125;</span><br><span class="line">			ch &lt;- <span class="built_in">sum</span> <span class="comment"> // goroutine计算完成后将结果送给channel等待主程序接收</span></span><br><span class="line">		&#125;(<span class="built_in">start</span> + i, <span class="keyword">end</span>, rout_num)</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">	// Reduce操作</span></span><br><span class="line"><span class="comment">	// 从channel中取出各个goutine计算的结果</span></span><br><span class="line"><span class="comment">	// 并将各个goroutine的计算结果加和得到最终结果</span></span><br><span class="line">	<span class="built_in">sum</span> := <span class="number">0</span></span><br><span class="line">	<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; rout_num; i++ &#123;</span><br><span class="line">		<span class="built_in">sum</span> += &lt;-ch</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="constant">return</span> <span class="built_in">sum</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<h4 id="最后说明">最后说明</h4><p>虽然使用goroutine进行模拟，但golang中goroutine的设计初衷还是用来实现更高的并发，本文重点还请放在MapReduce思想上，因为也是菜鸟一枚，欢迎各位大牛留言交流。</p>
+]]></content>
+    <summary type="html">
+    <![CDATA[<p>MapReduce是并行计算中非常重要的一部分，本文为MapReduce扫盲贴，所谓的MapReduce主要分为Map和Reduce两部分内容，也就是先进行任务拆分给多个CPU进行计算然后再将计算结果进行归约…<br>]]>
+    
+    </summary>
+    
+      <category term="golang" scheme="http://huxiaobo.net/tags/golang/"/>
+    
+      <category term="mapreduce" scheme="http://huxiaobo.net/tags/mapreduce/"/>
+    
+      <category term="并行计算" scheme="http://huxiaobo.net/tags/%E5%B9%B6%E8%A1%8C%E8%AE%A1%E7%AE%97/"/>
+    
+  </entry>
+  
+  <entry>
+    <title><![CDATA[系统安装]]></title>
+    <link href="http://huxiaobo.net/2015/09/29/%E7%B3%BB%E7%BB%9F%E5%AE%89%E8%A3%85/"/>
+    <id>http://huxiaobo.net/2015/09/29/系统安装/</id>
+    <published>2015-09-29T15:11:15.000Z</published>
+    <updated>2015-09-30T07:35:34.000Z</updated>
+    <content type="html"><![CDATA[<p>如果你是新手，那么还是建议你使用虚拟机来进行学习会方便很多，因此，本文还主要是介绍一下虚拟机下如何安装Ubuntu（其它发行版本安装方法类似，例如CentOS）</p>
+<ul>
+<li><p>需要准备的东西</p>
+<ul>
+<li><code>VMware workstation</code>，这是一款虚拟机软件，当然也有其它产品可以替代，比如<code>Virtual Box</code>，不过我觉得还是VMware更好用一点，需要注册才能使用，所以你需要自己再找到相应版本的注册机，如果懒得上网找的话，请跳到本文最后我给出的共享链接进行下载（带注册机哦）； </li>
+<li><code>系统镜像</code>，这是个什么鬼？就像windows一样，要装系统的时候需要有一个以<code>iso</code>结尾的镜像文件才能装系统 </li>
+</ul>
+<p>好了，使用虚拟机的话，有以上两样东西就足够了，下面开始安装吧…</p>
+<a id="more"></a>
+<h3 id="Ubuntu系统安装">Ubuntu系统安装</h3></li>
+</ul>
+<p>如果你是新手，那么还是建议你使用虚拟机来进行学习会方便很多，因此，本文还主要是介绍一下虚拟机下如何安装Ubuntu（其它发行版本安装方法类似，例如CentOS）</p>
+<ul>
+<li><p>需要准备的东西</p>
+<ul>
+<li><code>VMware workstation</code>，这是一款虚拟机软件，当然也有其它产品可以替代，比如<code>Virtual Box</code>，不过我觉得还是VMware更好用一点，需要注册才能使用，所以你需要自己再找到相应版本的注册机，如果懒得上网找的话，请跳到本文最后我给出的共享链接进行下载（带注册机哦）； </li>
+<li><code>系统镜像</code>，这是个什么鬼？就像windows一样，要装系统的时候需要有一个以<code>iso</code>结尾的镜像文件才能装系统 </li>
+</ul>
+<p>好了，使用虚拟机的话，有以上两样东西就足够了，下面开始安装吧</p>
+</li>
+<li><p>安装步骤（多图预警）</p>
+<ul>
+<li><p>先安装VMware（虚拟机软件） </p>
+<blockquote>
+<p>这里可能有些人会把虚拟机和我们常说的在虚拟机里装系统混淆，虚拟机只是一个软件，而我们要安装的系统指的是要在虚拟机这个软件里运行的系统，所以虚拟机和我们讲的Linux系统其实是两个东西，可以简单的将虚拟机理解成一台电脑，有了一台电脑，还需要安装操作系统    </p>
+</blockquote>
+<p>这个就是下载下来以后傻瓜式安装就可以了，此处不再花篇幅赘述</p>
+</li>
+<li><p>创建虚拟机</p>
+<ul>
+<li>打开VMware</li>
+<li><p>选择左上角 文件-&gt; 新建虚拟机，或者使用快捷键Ctrl + N，然后会弹出“新建虚拟机向导”界面 </p>
+</li>
+<li><p>选择自定义虚拟机<br><img src="/img/1.1/1.1-1.png" alt="选择自定义虚拟机"><br><img src="/img/1.1/1.1-2.png" alt="此处默认即可"> </p>
+</li>
+<li><p>此处选“稍后安装操作系统<br><img src="/img/1.1/1.1-3.png" alt="此处选“稍后安装操作系统”"> </p>
+</li>
+<li><p>如果你安装的是CentOS或者Redhat，版本请选择Redhat<br><img src="/img/1.1/1.1-4.png" alt="如果你安装的是CentOS或者Redhat，版本请选择Redhat"> </p>
+</li>
+<li><p>虚拟机名称可以随便写<br><img src="/img/1.1/1.1-5.png" alt="虚拟机名称可以随便写"> </p>
+</li>
+<li><p>处理器配置都默认即可<br><img src="/img/1.1/1.1-6.png" alt="处理器配置都默认即可"> </p>
+</li>
+<li><p>内存一般至少512MB<br><img src="/img/1.1/1.1-7.png" alt="内存一般至少512MB"> </p>
+</li>
+<li><p>网络类型也默认即可<br><img src="/img/1.1/1.1-8.png" alt="网络类型也默认即可"> </p>
+</li>
+<li><p>I/O控制器类型和磁盘类型默认即可<br><img src="/img/1.1/1.1-9.png" alt=""><br><img src="/img/1.1/1.1-10.png" alt=""> </p>
+</li>
+<li><p>选择创建新虚拟磁盘<br><img src="/img/1.1/1.1-11.png" alt=""> </p>
+</li>
+<li><p>指定磁盘大小（一般20G足够你学习使用了）并选择是否立即分配存储空间<br><img src="/img/1.1/1.1-12.png" alt=""> </p>
+</li>
+<li><p>选择虚拟机保存位置，也就是使用物理机哪个地方的磁盘空间<br><img src="/img/1.1/1.1-13.png" alt=""> </p>
+</li>
+<li><p>至此，完成虚拟机的创建，也就相当于你现在创建了一台电脑，但是里面没有装系统<br><img src="/img/1.1/1.1-14.png" alt=""><br><img src="/img/1.1/1.1-15.png" alt="">   </p>
+</li>
+</ul>
+</li>
+<li><p>挂载镜像文件  </p>
+<blockquote>
+<p>装系统之前，需要挂载镜像文件，相当于在电脑里放入系统安装光盘  </p>
+<ul>
+<li>编辑虚拟机设置<br><img src="/img/1.1/1.1-16.png" alt="">   </li>
+</ul>
+</blockquote>
+<ul>
+<li>按图中序号挂载镜像文件<br><img src="/img/1.1/1.1-17.png" alt="">   </li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li><p>开始装系统  </p>
+<blockquote>
+<p>镜像挂载好以后，就可以开始装系统了  </p>
+<ul>
+<li>启动虚拟机<br><img src="/img/1.1/1.1-18.png" alt=""><br><img src="/img/1.1/1.1-19.png" alt="">   </li>
+</ul>
+</blockquote>
+<ul>
+<li><p>选择安装时的语言环境<br><img src="/img/1.1/1.1-20.png" alt="">   </p>
+</li>
+<li><p>选择是否在安装的时候自动下载更新（当然，前提是你物理机连上网了）<br><img src="/img/1.1/1.1-21.png" alt="">   </p>
+</li>
+<li><p>格式化硬盘并安装系统（这里指的是格式化刚才创建的虚拟硬盘）<br><img src="/img/1.1/1.1-22.png" alt="">   </p>
+</li>
+<li><p>选择时区<br><img src="/img/1.1/1.1-23.png" alt="">   </p>
+</li>
+<li><p>选择键盘类型，一般系统会识别到<br><img src="/img/1.1/1.1-24.png" alt="">   </p>
+</li>
+<li><p>设置root用户名和密码<br><img src="/img/1.1/1.1-25.png" alt="">   </p>
+</li>
+<li><p>配置完成，开始装系统，等着就行，装好了会提示你需要重启<br><img src="/img/1.1/1.1-26.png" alt="">   </p>
+</li>
+<li><p>等待，等待。。。   </p>
+</li>
+<li>重启，Welcome to Linux world.</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li>下载链接<ul>
+<li><a href="http://pan.baidu.com/s/1qWBX7qc" target="_blank" rel="external">VMware及注册机</a></li>
+</ul>
+</li>
+</ul>
+]]></content>
+    <summary type="html">
+    <![CDATA[<p>如果你是新手，那么还是建议你使用虚拟机来进行学习会方便很多，因此，本文还主要是介绍一下虚拟机下如何安装Ubuntu（其它发行版本安装方法类似，例如CentOS）</p>
+<ul>
+<li><p>需要准备的东西</p>
+<ul>
+<li><code>VMware workstation</code>，这是一款虚拟机软件，当然也有其它产品可以替代，比如<code>Virtual Box</code>，不过我觉得还是VMware更好用一点，需要注册才能使用，所以你需要自己再找到相应版本的注册机，如果懒得上网找的话，请跳到本文最后我给出的共享链接进行下载（带注册机哦）； </li>
+<li><code>系统镜像</code>，这是个什么鬼？就像windows一样，要装系统的时候需要有一个以<code>iso</code>结尾的镜像文件才能装系统 </li>
+</ul>
+<p>好了，使用虚拟机的话，有以上两样东西就足够了，下面开始安装吧…</p>]]>
+    
+    </summary>
+    
+      <category term="Linux入门" scheme="http://huxiaobo.net/tags/Linux%E5%85%A5%E9%97%A8/"/>
+    
+      <category term="Ubuntu" scheme="http://huxiaobo.net/tags/Ubuntu/"/>
+    
+  </entry>
+  
+  <entry>
+    <title><![CDATA[Linux几个常用网络诊断工具]]></title>
+    <link href="http://huxiaobo.net/2015/02/25/Linux%E5%87%A0%E4%B8%AA%E5%B8%B8%E7%94%A8%E7%BD%91%E7%BB%9C%E8%AF%8A%E6%96%AD%E5%B7%A5%E5%85%B7/"/>
+    <id>http://huxiaobo.net/2015/02/25/Linux几个常用网络诊断工具/</id>
+    <published>2015-02-25T06:19:54.000Z</published>
+    <updated>2015-09-30T08:19:13.000Z</updated>
+    <content type="html"><![CDATA[<p>在运维工作中，通常会遇到很多网络问题，此时，一些定位网络问题的工具显得尤为重要，下面就将介绍一下我所常用的几个工具和使用场景，本文将主要为大家介绍一下ping、traceroute以及mtr这三款工具…<br><a id="more"></a><br>在运维工作中，通常会遇到很多网络问题，此时，一些定位网络问题的工具显得尤为重要，下面就将介绍一下我所常用的几个工具和使用场景</p>
+<ul>
+<li><p><strong>ping</strong><br>ping命令是一条最基础的测试本机到目的ip连通性的工具，如下图，不带任何参数的ping命令默认每秒发送一个数据包，并返回结果，按下CTRL+C结束，而如果使用-f参数则可以快速不断发送icmp数据包，可以通过-f参数查看大概的丢包率<br>ping命令返回结果中可以看到总共发送了多少个包，有多少个包被成功接收，丢包率是多少，ping的总共时长是多少等等 </p>
+<p><img src="/img/Linux几个常用网络诊断工具/ping.PNG" alt=""><br><img src="/img/Linux几个常用网络诊断工具/fping.png" alt=""></p>
+</li>
+<li><strong>traceroute</strong><br>使用traceroute命令可以看到发送的数据包从起点到终点都经过了哪些路由，traceroute相比ping命令来说有一个优点就是可以看到数据包在每一跳或者说经过每两个相邻的节点总共花了多少时间（*表示通路，不是网络不可达），如果网络有问题，可以通过traceroute来大致判断在哪一跳的地方有问题，或者说网络不通时，可以通过traceroute来确定具体在哪个ip开始连不通<br><img src="/img/Linux几个常用网络诊断工具/traceroute.PNG" alt=""></li>
+<li><strong>mtr</strong><br>如果确认网络有问题，那么mtr是很好的网络诊断工具，mtr命令像traceroute一样，可以显示数据包从源ip到目的ip中间所经过的路由，但是，mtr输出结果更加清楚，不像traceroute那般凌乱，如果想一次性打印所有结果而不是一条一条的出来的时候可以加上-r参数或者–report，当然，还有一个更突出也最<strong>实用</strong>的特点就是mtr命令可以准确的计算出两条相邻的路由之间的丢包率，如下图，<br><img src="/img/Linux几个常用网络诊断工具/mtr.png" alt="mtr示例"><ul>
+<li>Loss表示丢包率</li>
+<li>Snt表示每秒发送数据包的数量，默认是10，可通过-c参数指定</li>
+<li>Last表示最后一个数据包的返回时延</li>
+<li>Avg表示Snt个数据包的平均返回时延</li>
+<li>Best表示Snt个数据包中返回时延最短的时间（最优）</li>
+<li>Wrst表示Snt个数据包中返回时延最长的时间（最差）</li>
+<li>StDev表示返回时延的 <a href="http://baike.baidu.com/link?url=r5o6H-Hl3_A-7WUURrtavvH4zFVBgkwxX4O-huzVdBeueUhg3rKVWkt_oH-KFt5qL9C6Nq7On_BLhJtuOSdJT_" target="_blank" rel="external">保准偏差</a></li>
+</ul>
+</li>
+</ul>
+<hr>
+<p>所以，通常对于普通的连通性测试，只需要用到ping或者ping -f就可以了，如果ping不通，可以通过traceroute查看具体是在哪一跳ping不通，而如果ping的通，但是有丢包，可以通过mtr去检测在哪一段网络丢包比较严重以定位问题</p>
+]]></content>
+    <summary type="html">
+    <![CDATA[<p>在运维工作中，通常会遇到很多网络问题，此时，一些定位网络问题的工具显得尤为重要，下面就将介绍一下我所常用的几个工具和使用场景，本文将主要为大家介绍一下ping、traceroute以及mtr这三款工具…<br>]]>
+    
+    </summary>
+    
+      <category term="Linux" scheme="http://huxiaobo.net/tags/Linux/"/>
+    
+      <category term="网络" scheme="http://huxiaobo.net/tags/%E7%BD%91%E7%BB%9C/"/>
+    
+  </entry>
+  
+  <entry>
+    <title><![CDATA[记一次shell变量赋值时踩得坑]]></title>
+    <link href="http://huxiaobo.net/2015/01/05/%E8%AE%B0%E4%B8%80%E6%AC%A1shell%E5%8F%98%E9%87%8F%E8%B5%8B%E5%80%BC%E6%97%B6%E8%B8%A9%E5%BE%97%E5%9D%91/"/>
+    <id>http://huxiaobo.net/2015/01/05/记一次shell变量赋值时踩得坑/</id>
+    <published>2015-01-05T15:09:50.000Z</published>
+    <updated>2015-09-30T08:18:13.000Z</updated>
+    <content type="html"><![CDATA[<p>今天写了个严重失误的脚本，特此记录，以示警戒<br>脚本里面，我写了这么一行赋值语句<br><figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="setting">BASEDIR=<span class="value"><span class="string">"~/go/test"</span></span></span></span><br></pre></td></tr></table></figure></p>
+<p>随后创建目录<br><figure class="highlight xquery"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mkdir -pv <span class="variable">$BASEDIR</span></span><br></pre></td></tr></table></figure></p>
+<p>脚本执行以后，发现在当前目录下建立了如下的目录<br><img src="/img/shell赋值/1.png" alt=""><br><a id="more"></a><br>今天写了个严重失误的脚本，特此记录，以示警戒<br>脚本里面，我写了这么一行赋值语句<br><figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="setting">BASEDIR=<span class="value"><span class="string">"~/go/test"</span></span></span></span><br></pre></td></tr></table></figure></p>
+<p>随后创建目录<br><figure class="highlight xquery"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mkdir -pv <span class="variable">$BASEDIR</span></span><br></pre></td></tr></table></figure></p>
+<p>脚本执行以后，发现在当前目录下建立了如下的目录<br><img src="/img/shell赋值/1.png" alt=""></p>
+<p>原来是因为我脚本里面那个引号的问题，导致在创建目录的时候讲~当成一个字符串而不是解析成家目录，从而创建了一个名字为~的目录，于是，我自然就想把这个目录和下面的所有文件都删掉<br><figure class="highlight nginx"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="title">rm</span> -rf ~</span><br></pre></td></tr></table></figure></p>
+<p>这一失足成千古恨啊，在删除的时候就将~解析成家目录了，导致将家目录下所有文件都删除了，还好平时重要的东西都用git同步了，更庆幸的是不是用的root身份执行，否则后果不堪设想啊<br>如此严重的失误，特此记录，以示警戒<br>最后奉劝，大家在写脚本的时候都尽量用绝对路径</p>
+]]></content>
+    <summary type="html">
+    <![CDATA[<p>今天写了个严重失误的脚本，特此记录，以示警戒<br>脚本里面，我写了这么一行赋值语句<br><figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="setting">BASEDIR=<span class="value"><span class="string">"~/go/test"</span></span></span></span><br></pre></td></tr></table></figure></p>
+<p>随后创建目录<br><figure class="highlight xquery"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mkdir -pv <span class="variable">$BASEDIR</span></span><br></pre></td></tr></table></figure></p>
+<p>脚本执行以后，发现在当前目录下建立了如下的目录<br><img src="/img/shell赋值/1.png" alt=""><br>]]>
+    
+    </summary>
+    
+      <category term="shell" scheme="http://huxiaobo.net/tags/shell/"/>
+    
+  </entry>
+  
+  <entry>
+    <title><![CDATA[分分钟入门mongodb]]></title>
+    <link href="http://huxiaobo.net/2014/09/20/%E5%88%86%E5%88%86%E9%92%9F%E5%85%A5%E9%97%A8mongodb/"/>
+    <id>http://huxiaobo.net/2014/09/20/分分钟入门mongodb/</id>
+    <published>2014-09-20T02:14:36.000Z</published>
+    <updated>2015-09-30T08:19:05.000Z</updated>
+    <content type="html"><![CDATA[<p>在大数据市场中，传统的关系型数据库呈现出来的性能劣势日益明显，而非关系型数据库的应用反而逐渐受到青睐。作为一名即将从事运维工作并立志做架构师的数据库爱好者来说，MongoDB成为了我学习的一大焦点。<br>MongoDB是一种可以提供高性能、高可用以及自动比例缩放的开源非关系型文档数据库，属于NoSQL的一种。下文就我通过最近对MongoDB的学习做一个简单的总结。<br><a id="more"></a><br>在大数据市场中，传统的关系型数据库呈现出来的性能劣势日益明显，而非关系型数据库的应用反而逐渐受到青睐。作为一名即将从事运维工作并立志做架构师的数据库爱好者来说，MongoDB成为了我学习的一大焦点。<br>MongoDB是一种可以提供高性能、高可用以及自动比例缩放的开源非关系型文档数据库，属于NoSQL的一种。下文就我通过最近对MongoDB的学习做一个简单的总结。   </p>
+<h4 id="一、安装并启动mongodb">一、安装并启动mongodb</h4><p>在开始之前，先介绍一下MongoDB在Linux下的安装，我的系统版本是RHEL6.4。<br>1.二进制包解压安装<br>官网下载二进制安装包，下载包这种基础操作我就不做赘述了，假定已经下好包到/tmp目录下了。<br>因为下载的是二进制包，所以解压就可以用了，通常我们将其解压到/usr/local/目录下：<br><figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="preprocessor"># tar xf mongodb-linux-x86_64-<span class="number">2.6</span><span class="number">.4</span>.tgz -C /usr/local/</span></span><br><span class="line"><span class="preprocessor"># ln -s /usr/local/mongodb-linux-x86_64 /usr/local/mongodb</span></span><br></pre></td></tr></table></figure></p>
+<p>同样，还是为了方便，解压过后的目录中有个bin目录下存放于mongo操作相关的所有可执行命令，可以将mongo的bin目录加入环境变量<br><figure class="highlight dos"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"># <span class="keyword">echo</span> "export <span class="built_in">PATH</span>=$<span class="built_in">PATH</span>:/usr/local/mongodb/bin" » /etc/profile</span><br></pre></td></tr></table></figure></p>
+<p>创建数据存放目录，默认为/data/db，需要手动创建<br><figure class="highlight stata"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"># <span class="keyword">mkdir</span> -pv /data/<span class="keyword">db</span></span><br></pre></td></tr></table></figure></p>
+<p>为了在不重启的前提下使环境变量在当前终端生效，请执行如下命令重新加载/etc/profile文件：<br><figure class="highlight gradle"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"># <span class="keyword">source</span> <span class="regexp">/etc/</span>profile</span><br></pre></td></tr></table></figure></p>
+<p>启动mongod服务：<br><figure class="highlight vala"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="preprocessor"># mongod —dbpath=/data/db —fork</span></span><br></pre></td></tr></table></figure></p>
+<p>如果未将解压目录下的bin目录加入环境变量中，请输入绝对路径执行命令：<br><figure class="highlight gradle"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"># <span class="regexp">/usr/</span>local<span class="regexp">/mongodb/</span>bin<span class="regexp">/mongod —fork</span></span><br></pre></td></tr></table></figure></p>
+<p><strong>【注意】</strong>解压安装启动mongod服务默认在前台运行，加上—fork参数可使其加入到后台守护进程组在后台运行<br>2.rpm包安装<br>MongoDB官网也提供了免费的yum源，通过配置yum源后可通过yum安装rpm包，yum源配置如下：<br><figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># vim /etc/yum.repos.d/mongodb.repo    //编辑yum源配置文件，添加如下内容</span></span><br><span class="line"><span class="title">[mongodb]</span></span><br><span class="line"><span class="setting">name=<span class="value">MongoDB Repository</span></span></span><br><span class="line"><span class="setting">baseurl=<span class="value">http://downloads-distro.mongodb.org/repo/redhat/os/x<span class="number">86_64</span>/</span></span></span><br><span class="line"><span class="setting">enabled=<span class="value"><span class="number">1</span></span></span></span><br><span class="line"><span class="setting">gpgcheck=<span class="value"><span class="number">0</span></span></span></span><br></pre></td></tr></table></figure></p>
+<p><strong>【注意】</strong> 如果你是32位操作系统，baseurl应该改成：<br><figure class="highlight crystal"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">baseurl=<span class="symbol">http:</span>/<span class="regexp">/downloads-distro.mongodb.org/repo</span><span class="regexp">/redhat/os</span><span class="regexp">/i686/</span></span><br></pre></td></tr></table></figure></p>
+<p>配置好yum源，执行如下命令清空缓存并查看最新可用yum源配置情况：<br>    <figure class="highlight vala"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="preprocessor"># yum clean all</span></span><br><span class="line"><span class="preprocessor"># yum repolist</span></span><br></pre></td></tr></table></figure></p>
+<p>确认yum源生效后可直接yum安装mongodb</p>
+<pre><code><span class="preprocessor"># yum -y install mongodb-org</span>
+</code></pre><p>启动mongod服务</p>
+<pre><code><span class="preprocessor"># service mongod start</span>
+</code></pre><h4 id="二、初次使用数据库">二、初次使用数据库</h4><h5 id="1-登录数据库">1.登录数据库</h5><p>  同样，如果没有修改环境变量的PATH，需要写出绝对路径执行mongodb的客户端命令mongo：</p>
+<pre><code># <span class="regexp">/usr/</span>local<span class="regexp">/mongodb/</span>bin<span class="regexp">/mongo</span>
+</code></pre><p>  否则，只需要在终端下执行mongo命令即可（包括yum方式安装也是如下登录方法）：</p>
+<pre><code><span class="preprocessor"># mongo</span>
+</code></pre><p>  类似于MySQL，初次使用，如果没有进行配置，默认以管理员身份登录，并且没有密码，并且此时默认登入到test库中。</p>
+<h5 id="2-实际操作之前需要了解的一些有关MongoDB中数据库结构的知识">2.实际操作之前需要了解的一些有关MongoDB中数据库结构的知识</h5><ul>
+<li>建库与建表：  <ul>
+<li>在mongo中，没有复杂的建库建表的操作，我们先谈一下建表的操作，因为mongo本身是一种非关系型数据库，对各个字段没有多少限制，所以在mongo中，无需手动创建表，只要你在表中插入了一行数据，那这张表就自动创建了，后面将会介绍具体插入数据的操作；  </li>
+<li>对于库（schema）也是这样的，只要你use了一个不存在的库，并且在这个库里面生成一张表，那这个库就自动创建了；  </li>
+<li>当然，需要注意一点的是我们在mongo中把表叫做集合（collection），把记录（一行数据）叫做文档（documentation），本文为了方便理解，还将其叫做表和记录</li>
+</ul>
+</li>
+<li>数据存储方式：<ul>
+<li>在mongo的集合中，记录（一行数据）以BSON键值对（key:value）的方式进行存储，BSON是JSON（一种数据格式）格式的一种；</li>
+<li>一行记录中可以有任意多个字段，这个字段的值可以是字符串、数字或者数组，数组也可以由多个键值对组成，类似于嵌套；</li>
+<li>每两行记录之间没有必然的关系，比如说第一行可以有5个字段，并且它们的值全是数字，而第二行却可能是两个字段甚至字段对应的值的类型可以是字符串，和第一行没有任何关系</li>
+</ul>
+</li>
+</ul>
+<h5 id="3-数据库基本操作">3.数据库基本操作</h5><p>进入mongo shell界面（mongo shell默认的提示符为 &gt; ），首先当然是查看帮助了，直接在提示符后面输入help就可查看所有帮助目录了<br>如下命令查看所有你能看到的库<br><figure class="highlight markdown"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="blockquote">&gt; show dbs</span></span><br></pre></td></tr></table></figure></p>
+<p>直接输入db可查看你当前所在哪个库中<br>可通过show tables或者show collections命令查看当前库中的集合<br><figure class="highlight q"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; <span class="built_in">show</span> <span class="built_in">tables</span></span><br><span class="line">&gt; <span class="built_in">show</span> collections</span><br></pre></td></tr></table></figure></p>
+<p>以上两条命令执行结果完全一样，可根据喜好进行选择使用哪条命令，我个人比较喜欢后者，能看出和MySQL的区别并写貌似显得稍稍有点逼格（抱歉，吐槽段子，不喜勿喷啊！！！）<br><strong>【注意】</strong>mongo不像MySQL，在mongo shell中，所有的命令都无需添加分号结束，当然，加上分号也没有错。<br>除了上述操作之外，数据库基本操作无非就是增删改查</p>
+<h6 id="增：给表中插入数据，简直太简单">增：给表中插入数据，简直太简单</h6><figure class="highlight css"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; <span class="tag">use</span> <span class="tag">db1</span></span><br><span class="line">&gt; <span class="tag">db</span><span class="class">.c1</span><span class="class">.insert</span>(<span class="rules">&#123;<span class="rule"><span class="attribute">name</span>:<span class="value"><span class="string">"robin"</span>,age:<span class="number">21</span>&#125;)</span></span></span></span><br></pre></td></tr></table></figure>
+<p>请看上述这两条命令，第一条命令进入到db1库中，第二条命令在c1表中插入一条记录，有两个字段分别是name和age，其值分别对应为”robin”和21，注意字符串要用引号引起来。<br>在一条记录中，多个字段之间用逗号分隔，字段与其对应的值用冒号隔开，{name:”robin”,age:21}就是一条BSON格式的数据<br><strong>【注意】</strong>在执行上述两条命令之前，db1库和c1表均不存在，当你执行了第一条命令并同时执行了第二条命令之后，会自动创建一个名叫db1的库并在该库下创建一个名叫c1的表，表中有一行你刚插入的数据。</p>
+<h6 id="查：插入了数据，我们现在看一下怎么去查找数据，简直更简单">查：插入了数据，我们现在看一下怎么去查找数据，简直更简单</h6><figure class="highlight stylus"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; use db1 进入db1库中</span><br><span class="line">&gt; db<span class="class">.c1</span><span class="class">.find</span>() <span class="comment">//查出了db1库下c1表中的所有数据</span></span><br></pre></td></tr></table></figure>
+<p>有人说，通常情况下我不是需要所有数据，只需要查看满足某些特定条件的数据，请看如下命令：<br><figure class="highlight css"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&gt; <span class="tag">db</span><span class="class">.c1</span><span class="class">.find</span>(<span class="rules">&#123;<span class="rule"><span class="attribute">name</span>:<span class="value"><span class="string">"robin"</span>&#125;) //查看c1表中所有包含name字段（注意有些记录可能不包含name字段哦…）并且对应的值是robin的记录</span></span></span></span><br></pre></td></tr></table></figure></p>
+<p>看到上一条命令查询结果你会发现，每一条记录都多出来一个”_id”的属性并且每行记录的_id属性对应的值是唯一的，这是mongo在你插入数据的时候自动添加的，用来进行索引加快查询速度<br>如果我不想看到_id字段，可参考如下命令：<br><figure class="highlight css"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&gt; <span class="tag">db</span><span class="class">.c1</span><span class="class">.find</span>(<span class="rules">&#123;<span class="rule"><span class="attribute">name</span>:<span class="value"><span class="string">"robin"</span>&#125;,&#123;_id:<span class="number">0</span>&#125;) //后面的<span class="number">0</span>表示不显示_id属性，如果将其设置为<span class="number">1</span>，则显示_id属性，默认为<span class="number">1</span></span></span></span></span><br></pre></td></tr></table></figure></p>
+<p>当然，如果我只想看到名字叫做robin的这个人的age，而不想看到他的_id和name，那么可参考如下命令：<br><figure class="highlight groovy"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&gt; db.c1.find(&#123;<span class="string">name:</span><span class="string">"robin"</span>&#125;,&#123;<span class="string">_id:</span><span class="number">0</span>,<span class="string">age:</span><span class="number">1</span>&#125;) <span class="comment">//这条命令结果只会显示age这个字段和它对应的值，如果_id:0后面什么都没有，则默认显示除了_id字段之外的所有字段，如果_id后面写了其它字段并且格式为field：1，则只显示后面添加的字段。【注意：这里的field:1中的数字1改成0的话会显示语法错误，只有_id字段可以使用0】</span></span><br></pre></td></tr></table></figure></p>
+<p>查找小结：查找主要使用find方法，格式db.表名.find({},{})，第一个{}里写的是过滤记录的条件，第二个{}写的是需要显示的字段</p>
+<h6 id="删：删除记录的操作和查找有点类似">删：删除记录的操作和查找有点类似</h6><figure class="highlight css"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">&gt; <span class="tag">use</span> <span class="tag">db1</span></span><br><span class="line">&gt; <span class="tag">db</span><span class="class">.c1</span><span class="class">.remove</span>(<span class="rules">&#123;&#125;</span>) 删除<span class="tag">c1</span>表中所有记录</span><br><span class="line">&gt; <span class="tag">db</span><span class="class">.c1</span><span class="class">.remove</span>(<span class="rules">&#123;<span class="rule"><span class="attribute">name</span>:<span class="value"><span class="string">"robin"</span>&#125;) 删除c1表中所有包含name字段并且对应值为robin的记录</span><br><span class="line">&gt; db.c1.<span class="function">remove</span>(&#123;name:<span class="string">"robin"</span>&#125;,<span class="number">1</span>) 删除c1表中匹配到的第一条包含        name字段并且值为robin的记录</span></span></span></span><br></pre></td></tr></table></figure>
+<h6 id="改：">改：</h6><figure class="highlight xquery"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">&gt; use db1</span><br><span class="line">&gt; db.c1.<span class="keyword">update</span>(&#123;name:<span class="string">"robin"</span>&#125;,&#123;<span class="variable">$set</span>:&#123;age:<span class="number">100</span>&#125;&#125;) //将第一个匹配到的名叫robin的人的age改成<span class="number">100</span></span><br><span class="line">&gt; db.c1.<span class="keyword">update</span>(&#123;name:<span class="string">"robin"</span>&#125;,&#123;<span class="variable">$set</span>:&#123;age:<span class="number">100</span>&#125;&#125;,&#123;multi:true&#125;) //将所有匹配到的名叫robin的人的age改成<span class="number">100</span></span><br><span class="line">&gt; db.c1.<span class="keyword">update</span>(&#123;name:<span class="string">"robin"</span>&#125;,&#123;name:<span class="string">"kitty"</span>, birthday:<span class="string">"0316"</span>&#125;) //仔细将这条命令和第一条修改命令进行比较，发现它没有set，所以这是一条替换命令，将匹配到的记录的字段全都删除（_id字段除外），然后添加两个字段分别是name和birthday，对应值分别是<span class="string">"kitty"</span>和<span class="string">"0316"</span>。</span><br></pre></td></tr></table></figure>
+<h4 id="三、停止mongodb服务">三、停止mongodb服务</h4><p>有的朋友说，这好办，直接kill掉mongod的进程不得了，确实说的没错，我们可以先通过”ps aux| grep mongod”命令查看mongod的进程号，然后kill掉，虽然可以达到目的，但是明显这么做不太合理。<br>正常情况下如果我想关闭mysqld服务，直接执行命令”service mysqld stop”就可以了，当然，如果你是yum安装的话，通过”service mongod start”命令启动的话自然可以通过这种方式停止服务，但是如果你是解压缩安装的MongoDB，那就不可以了，系统会告诉你mongod是个无法识别的服务，这个时候正常的关闭就显得有点奇葩了，你需要以管理员身份登录到mongo shell中，进入到admin库中关闭服务，命令如下：<br><figure class="highlight markdown"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="blockquote">&gt; use admin</span></span><br><span class="line"><span class="blockquote">&gt; db.shutdownServer()</span></span><br><span class="line"><span class="blockquote">&gt; exit</span></span><br></pre></td></tr></table></figure></p>
+<h4 id="四、MongoDB用户权限管理">四、MongoDB用户权限管理</h4><p>1.启动mongod数据库服务（详请参考上文）<br>2.以管理员身份登录mongo shell（详请参考上文）<br>3.进入到admin库中添加一个管理员帐户，命令如下：<br><figure class="highlight stylus"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; use admin</span><br><span class="line">&gt; db.<span class="function"><span class="title">addUser</span><span class="params">(&#123;<span class="string">"root"</span>:<span class="string">"123"</span>&#125;)</span></span> <span class="comment">//添加一个管理员帐号，用户名为root，密码为123</span></span><br></pre></td></tr></table></figure></p>
+<p>4.添加一个普通账户，命令如下：<br><figure class="highlight stylus"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&gt; use db1</span><br><span class="line">&gt; db.<span class="function"><span class="title">addUser</span><span class="params">(&#123;<span class="string">"alice"</span>:<span class="string">"456"</span>&#125;)</span></span> <span class="comment">//为db1库添加一个用户，用户名为alice，密码为456</span></span><br></pre></td></tr></table></figure></p>
+<p><strong>【注意】</strong> 除了在admin库中创建的用户是管理员用户以外，在其它任意库中创建的用户都是普通用户，只能看到他所属的库里的数据<br>5.关闭mongod服务（详请参考上文）<br>6.启动带身份验证的mongod服务<br><figure class="highlight vala"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="preprocessor"># mongod —dbpath=/data/db —auth —fork</span></span><br></pre></td></tr></table></figure></p>
+<p>7.此时再次输入mongo则无法进入mongo shell，需要通过如下命令进行身份验证方可进入，此时有点类似于mysql<br><figure class="highlight vala"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="preprocessor"># mongo -uroot -p123 以root身份登录数据库</span></span><br></pre></td></tr></table></figure></p>
+<h4 id="总结：">总结：</h4><p>对于初学者来说，我觉得理解MongoDB最重要的一点就是在于对BSON这种数据格式（一对{}里面存放键值对，多个键值对用逗号隔开）的理解，以及要重点注意在MongoDB中同一张表中的不同记录之间是没有必然的联系的，因此你可以随心所欲的存放任何你想要存储的数据，对于有MySQL或其它关系型数据库经验的初学者来说，其复杂度看似提高却又有种化繁为简的感觉。</p>
+]]></content>
+    <summary type="html">
+    <![CDATA[<p>在大数据市场中，传统的关系型数据库呈现出来的性能劣势日益明显，而非关系型数据库的应用反而逐渐受到青睐。作为一名即将从事运维工作并立志做架构师的数据库爱好者来说，MongoDB成为了我学习的一大焦点。<br>MongoDB是一种可以提供高性能、高可用以及自动比例缩放的开源非关系型文档数据库，属于NoSQL的一种。下文就我通过最近对MongoDB的学习做一个简单的总结。<br>]]>
+    
+    </summary>
+    
+      <category term="Linux" scheme="http://huxiaobo.net/tags/Linux/"/>
+    
+      <category term="mongodb" scheme="http://huxiaobo.net/tags/mongodb/"/>
+    
+  </entry>
+  
+</feed>
